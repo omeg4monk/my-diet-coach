@@ -9,7 +9,104 @@ from google import genai
 from google.genai import types
 
 # ==========================================
-# 1. PYDANTIC SCHEMAS FOR GEMINI OUTPUTS
+# 1. PAGE CONFIG & MODERN CSS INJECTION
+# ==========================================
+
+st.set_page_config(
+    page_title="NutriSync AI — Adaptive Diet Coach",
+    page_icon="🥗",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
+
+# Custom CSS for a modern, sleek mobile-first design
+st.markdown("""
+<style>
+    /* Global Background & Font */
+    .stApp {
+        background-color: #0f172a;
+        color: #f8fafc;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    
+    /* Hide Streamlit Default Header & Footer */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+
+    /* Custom Card Containers */
+    .metric-card {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        border: 1px solid #334155;
+        padding: 16px;
+        border-radius: 16px;
+        box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.3);
+        text-align: center;
+        margin-bottom: 12px;
+    }
+    
+    .glass-card {
+        background: rgba(30, 41, 59, 0.7);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        padding: 24px;
+        margin-bottom: 20px;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    }
+
+    /* Typography & Titles */
+    h1, h2, h3 {
+        color: #f1f5f9;
+        font-weight: 700;
+    }
+    
+    .app-title {
+        font-size: 2.2rem;
+        background: linear-gradient(90deg, #38bdf8 0%, #818cf8 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0px;
+    }
+
+    /* Custom Buttons */
+    .stButton>button {
+        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        padding: 0.6rem 1.2rem;
+        font-weight: 600;
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+        transition: all 0.3s ease;
+        width: 100%;
+    }
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(99, 102, 241, 0.6);
+    }
+
+    /* Tabs Styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background-color: #1e293b;
+        padding: 6px;
+        border-radius: 14px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 10px;
+        color: #94a3b8;
+        font-weight: 600;
+    }
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+        color: white !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ==========================================
+# 2. PYDANTIC SCHEMAS FOR GEMINI OUTPUTS
 # ==========================================
 
 class FoodItem(BaseModel):
@@ -22,7 +119,7 @@ class FoodItem(BaseModel):
     fiber_g: float = Field(description="Estimated dietary fiber in grams")
 
 class MealAnalysis(BaseModel):
-    meal_summary: str = Field(description="Overall title of the meal (e.g., 'Paniyaram with Coconut Chutney')")
+    meal_summary: str = Field(description="Overall title of the meal (e.g., 'Paniyaram with Chutney')")
     items: List[FoodItem] = Field(description="Breakdown of individual items on the plate")
     total_calories: int = Field(description="Sum of calories for the entire meal")
     total_protein_g: float = Field(description="Sum of protein in grams")
@@ -34,20 +131,20 @@ class MealAnalysis(BaseModel):
     )
 
 class PlannedMeal(BaseModel):
-    meal_slot: str = Field(description="e.g., Pre-Workout, Breakfast, Lunch, Evening Fuel, Dinner")
+    meal_slot: str = Field(description="e.g., Breakfast, Lunch, Dinner")
     dish_suggestion: str = Field(description="Specific dish with exact portion sizes")
     calories: int
     protein_g: float
     carbs_g: float
     fat_g: float
-    why_this_works: str = Field(description="How this fits the remaining macro budget and activity schedule")
+    why_this_works: str = Field(description="How this fits the remaining macro budget")
 
 class AdaptiveDietPlan(BaseModel):
-    strategy_note: str = Field(description="Brief explanation of how the plan adapts to what was already eaten today")
+    strategy_note: str = Field(description="Brief explanation of how the plan adapts to what was eaten today")
     recommended_meals: List[PlannedMeal]
 
 # ==========================================
-# 2. LOCAL SQLITE DATABASE LAYER
+# 3. LOCAL SQLITE DATABASE LAYER
 # ==========================================
 
 DB_FILE = "diet_tracker.db"
@@ -77,15 +174,9 @@ def save_meal(log_date: str, meal_type: str, analysis: MealAnalysis):
                 protein_g, carbs_g, fat_g, fiber_g, raw_json
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            log_date,
-            meal_type,
-            analysis.meal_summary,
-            analysis.total_calories,
-            analysis.total_protein_g,
-            analysis.total_carbs_g,
-            analysis.total_fat_g,
-            analysis.total_fiber_g,
-            analysis.model_dump_json()
+            log_date, meal_type, analysis.meal_summary, analysis.total_calories,
+            analysis.total_protein_g, analysis.total_carbs_g, analysis.total_fat_g,
+            analysis.total_fiber_g, analysis.model_dump_json()
         ))
 
 def get_meals_for_date(log_date: str):
@@ -98,273 +189,220 @@ def delete_meal(meal_id: int):
     with sqlite3.connect(DB_FILE) as conn:
         conn.execute("DELETE FROM meals WHERE id = ?", (meal_id,))
 
-# ==========================================
-# 3. GEMINI API INTEGRATION
-# ==========================================
-
-def analyze_meal_photo(
-    client: genai.Client,
-    model_name: str,
-    image: Image.Image,
-    user_notes: str,
-    meal_type: str
-) -> MealAnalysis:
-    prompt = f"""
-    You are an expert sports and clinical nutritionist.
-    Analyze this photo of a {meal_type} meal.
-    User context / notes on portions or ingredients: "{user_notes if user_notes else 'None provided'}"
-    
-    1. Identify every distinct food item, condiment, and beverage visible.
-    2. Estimate realistic portion weights (in grams) using plate geometry and standard serving sizes.
-    3. Calculate calories, protein, carbs, fat, and fiber accurately.
-    4. Provide concise, constructive feedback on the nutritional quality of the meal.
-    """
-    response = client.models.generate_content(
-        model=model_name,
-        contents=[image, prompt],
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=MealAnalysis,
-            temperature=0.2,
-        ),
-    )
-    return MealAnalysis.model_validate_json(response.text)
-
-def generate_adaptive_plan(
-    client: genai.Client,
-    model_name: str,
-    targets: dict,
-    consumed: dict,
-    logged_meals: list,
-    preferences: dict
-) -> AdaptiveDietPlan:
-    remaining = {
-        "calories": max(0, targets["calories"] - consumed["calories"]),
-        "protein_g": max(0.0, targets["protein_g"] - consumed["protein_g"]),
-        "carbs_g": max(0.0, targets["carbs_g"] - consumed["carbs_g"]),
-        "fat_g": max(0.0, targets["fat_g"] - consumed["fat_g"]),
-    }
-    
-    eaten_summary = [
-        f"{m['meal_type']}: {m['meal_summary']} ({m['calories']} kcal, {m['protein_g']}g P, {m['carbs_g']}g C, {m['fat_g']}g F)"
-        for m in logged_meals
-    ]
-
-    prompt = f"""
-    You are an adaptive AI nutrition coach. Build a realistic meal plan for the REMAINING meals today
-    (or a full-day plan if nothing has been eaten yet).
-
-    USER PROFILE & PREFERENCES:
-    - Dietary Preference: {preferences['diet_type']}
-    - Preferred Staples / Cuisine: {preferences['cuisine']}
-    - Daily Schedule & Training: {preferences['schedule']}
-
-    DAILY TARGETS:
-    - Calories: {targets['calories']} kcal | Protein: {targets['protein_g']}g | Carbs: {targets['carbs_g']}g | Fat: {targets['fat_g']}g
-
-    ALREADY EATEN TODAY:
-    {json.dumps(eaten_summary, indent=2) if eaten_summary else "Nothing logged yet today."}
-
-    REMAINING MACRO BUDGET FOR TODAY:
-    - Calories left: {remaining['calories']} kcal
-    - Protein left: {remaining['protein_g']:.1f}g
-    - Carbs left: {remaining['carbs_g']:.1f}g
-    - Fat left: {remaining['fat_g']:.1f}g
-
-    INSTRUCTIONS:
-    1. Only plan the meals that have NOT been eaten yet today (or a full day if nothing is logged).
-    2. Re-balance macros intelligently: for example, if earlier meals were heavy on carbs or fats, steer the remaining meals toward lean protein and fiber so the user lands right on their daily target.
-    3. Give exact household measurements (e.g., "6 pieces appe/paniyaram", "150g grilled paneer", "2 bowls moong dal").
-    """
-    response = client.models.generate_content(
-        model=model_name,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=AdaptiveDietPlan,
-            temperature=0.4,
-        ),
-    )
-    return AdaptiveDietPlan.model_validate_json(response.text)
-
-# ==========================================
-# 4. STREAMLIT UI
-# ==========================================
-
-st.set_page_config(page_title="Gemini Adaptive Diet Coach", page_icon="🥗", layout="wide")
 init_db()
 
-st.title("🥗 Gemini Vision & Adaptive Diet Coach")
-st.caption("Upload meal photos to log macros automatically and dynamically re-balance your daily diet plan.")
+# ==========================================
+# 4. API KEY CONFIG (HIDDEN FOR END USER)
+# ==========================================
 
-# --- Sidebar Configuration ---
-with st.sidebar:
-    st.header("🔑 Gemini API Setup")
-    # Automatically loads your saved key from Streamlit Cloud so you don't type it on mobile
-    default_key = st.secrets.get("GEMINI_API_KEY", "")
-    api_key = default_key or st.text_input("Gemini API Key", type="password")
-    if default_key:
-        st.success("API Key connected automatically ✅")
-        
-    model_name = st.selectbox(
-        "Model",
-        options=["gemini-3.8-flash", "gemini-3.5-flash-lite"],
-        index=0
-    )
+# Automatically loads your backend key from Streamlit Cloud Secrets.
+# No API key box or sidebar clutter is shown to your end-users.
+api_key = st.secrets.get("GEMINI_API_KEY", "")
+MODEL_NAME = "gemini-3.8-flash"
+
+if not api_key:
+    st.error("⚠️ System Configuration Error: GEMINI_API_KEY is not set in Streamlit Cloud Secrets.")
+    st.stop()
+
+client = genai.Client(api_key=api_key)
+
+# ==========================================
+# 5. HEADER & PROFILE SETTINGS EXPANDER
+# ==========================================
+
+st.markdown('<p class="app-title">NutriSync AI</p>', unsafe_allow_html=True)
+st.caption("✨ Real-time adaptive nutrition powered by Gemini Vision")
+
+with st.expander("⚙️ Customize Your Daily Goals & Preferences"):
+    col_g1, col_g2 = st.columns(2)
+    with col_g1:
+        target_cal = st.number_input("Target Calories", 1200, 4000, 2200, 50)
+        target_pro = st.number_input("Target Protein (g)", 40, 300, 140, 5)
+    with col_g2:
+        target_carb = st.number_input("Target Carbs (g)", 50, 500, 220, 10)
+        target_fat = st.number_input("Target Fat (g)", 30, 200, 65, 5)
     
-    st.divider()
-    st.header("🎯 Daily Macro Targets")
-    target_cal = st.number_input("Daily Calories (kcal)", min_value=1000, max_value=5000, value=2200, step=50)
-    target_pro = st.number_input("Protein (g)", min_value=30, max_value=300, value=140, step=5)
-    target_carb = st.number_input("Carbs (g)", min_value=50, max_value=600, value=230, step=10)
-    target_fat = st.number_input("Fat (g)", min_value=20, max_value=200, value=65, step=5)
-
-    st.divider()
-    st.header("🏃‍♂️ Profile & Routine")
-    diet_type = st.selectbox("Dietary Style", ["Vegetarian (High Protein)", "Eggetarian", "Omnivore", "Vegan"])
-    cuisine_pref = st.text_area(
-        "Staples & Cuisine Preferences",
-        value="Indian home-style (Appe/Paniyaram, Dosa, Dal, Paneer, Curd, Sprouts, Whey, Oats)"
-    )
-    schedule_pref = st.text_area(
-        "Daily Routine & Workouts",
-        value="Early 5:00 AM wake-up, morning pre-workout fuel, active swimming or badminton session, light dinner."
-    )
-
+    diet_type = st.selectbox("Diet Style", ["High-Protein Vegetarian", "Omnivore", "Eggetarian", "Vegan"])
+    cuisine_pref = st.text_input("Favorite Staples", value="Home-style Indian, South Indian, Dals, Paneer, Oats")
     selected_date = st.date_input("Tracking Date", value=date.today()).isoformat()
 
-# Fetch current day's logs
-logged_meals = get_meals_for_date(selected_date)
+# Fetch current logs & calculate progress
+logged_meals = get_meals_for_date(selected_date if 'selected_date' in locals() else date.today().isoformat())
 consumed = {
     "calories": sum(m["calories"] for m in logged_meals),
     "protein_g": sum(m["protein_g"] for m in logged_meals),
     "carbs_g": sum(m["carbs_g"] for m in logged_meals),
     "fat_g": sum(m["fat_g"] for m in logged_meals),
-    "fiber_g": sum(m["fiber_g"] for m in logged_meals),
 }
+target_cal = target_cal if 'target_cal' in locals() else 2200
+target_pro = target_pro if 'target_pro' in locals() else 140
+target_carb = target_carb if 'target_carb' in locals() else 220
+target_fat = target_fat if 'target_fat' in locals() else 65
 
-# --- Top Macro Dashboard ---
-st.subheader(f"📊 Daily Progress ({selected_date})")
-col1, col2, col3, col4 = st.columns(4)
+# ==========================================
+# 6. DASHBOARD METRIC CARDS
+# ==========================================
 
-with col1:
-    st.metric("Calories", f"{consumed['calories']} / {target_cal} kcal", f"{target_cal - consumed['calories']} left")
-    st.progress(min(1.0, consumed["calories"] / target_cal))
-with col2:
-    st.metric("Protein", f"{consumed['protein_g']:.1f} / {target_pro} g", f"{target_pro - consumed['protein_g']:.1f}g left")
-    st.progress(min(1.0, consumed["protein_g"] / target_pro))
-with col3:
-    st.metric("Carbs", f"{consumed['carbs_g']:.1f} / {target_carb} g", f"{target_carb - consumed['carbs_g']:.1f}g left")
-    st.progress(min(1.0, consumed["carbs_g"] / target_carb))
-with col4:
-    st.metric("Fats", f"{consumed['fat_g']:.1f} / {target_fat} g", f"{target_fat - consumed['fat_g']:.1f}g left")
-    st.progress(min(1.0, consumed["fat_g"] / target_fat))
+st.write("")
+mcol1, mcol2, mcol3, mcol4 = st.columns(4)
 
-st.divider()
+with mcol1:
+    cal_left = target_cal - consumed['calories']
+    st.markdown(f"""
+    <div class="metric-card">
+        <div style="font-size: 0.8rem; color: #94a3b8;">CALORIES</div>
+        <div style="font-size: 1.3rem; font-weight: 700; color: #38bdf8;">{consumed['calories']}</div>
+        <div style="font-size: 0.75rem; color: #64748b;">Target: {target_cal}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# --- Main Tabs ---
-tab_log, tab_plan, tab_history = st.tabs([
-    "📸 1. Log Meal via Photo",
-    "🧠 2. Dynamic Diet Planner",
-    "📋 3. Today's Meal Ledger"
-])
+with mcol2:
+    st.markdown(f"""
+    <div class="metric-card">
+        <div style="font-size: 0.8rem; color: #94a3b8;">PROTEIN</div>
+        <div style="font-size: 1.3rem; font-weight: 700; color: #818cf8;">{consumed['protein_g']:.1f}g</div>
+        <div style="font-size: 0.75rem; color: #64748b;">Target: {target_pro}g</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# TAB 1: PHOTO UPLOAD & VISION ANALYSIS
+with mcol3:
+    st.markdown(f"""
+    <div class="metric-card">
+        <div style="font-size: 0.8rem; color: #94a3b8;">CARBS</div>
+        <div style="font-size: 1.3rem; font-weight: 700; color: #34d399;">{consumed['carbs_g']:.1f}g</div>
+        <div style="font-size: 0.75rem; color: #64748b;">Target: {target_carb}g</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with mcol4:
+    st.markdown(f"""
+    <div class="metric-card">
+        <div style="font-size: 0.8rem; color: #94a3b8;">FATS</div>
+        <div style="font-size: 1.3rem; font-weight: 700; color: #f472b6;">{consumed['fat_g']:.1f}g</div>
+        <div style="font-size: 0.75rem; color: #64748b;">Target: {target_fat}g</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ==========================================
+# 7. MAIN INTERACTIVE TABS
+# ==========================================
+
+tab_log, tab_plan, tab_history = st.tabs(["📸 Snap & Log", "🧠 Adaptive Plan", "📋 Meal History"])
+
+# --- TAB 1: SNAP & LOG ---
 with tab_log:
-    left_col, right_col = st.columns([1, 1])
-    with left_col:
-        meal_type = st.selectbox(
-            "Meal Slot",
-            ["Pre-Workout", "Breakfast", "Lunch", "Evening Snack / Post-Sport", "Dinner"]
-        )
-        uploaded_file = st.file_uploader("Upload a photo of your meal", type=["jpg", "jpeg", "png", "webp"])
-        user_notes = st.text_input(
-            "Optional Context (improves accuracy for hidden ingredients)",
-            placeholder="e.g., Cooked in 1 tsp ghee, 6 pieces of rava appe with peanut chutney"
-        )
-        analyze_btn = st.button("🔍 Analyze & Log Meal", type="primary", use_container_width=True)
+    st.markdown("### Upload Meal Photo")
+    meal_type = st.selectbox("Meal Time", ["Breakfast", "Lunch", "Pre-Workout Snack", "Post-Workout", "Dinner"])
+    
+    uploaded_file = st.file_uploader("Take or upload a photo of your plate", type=["jpg", "jpeg", "png", "webp"])
+    user_notes = st.text_input("Quick note (optional)", placeholder="e.g., Cooked in 1 tsp oil, included coconut chutney")
+    
+    if uploaded_file:
+        st.image(uploaded_file, use_container_width=True)
 
-    with right_col:
-        if uploaded_file:
-            img = Image.open(uploaded_file)
-            st.image(img, caption="Uploaded Meal", use_container_width=True)
-
-    if analyze_btn:
-        if not api_key:
-            st.error("Please enter your Gemini API Key in the sidebar first.")
-        elif not uploaded_file:
-            st.warning("Please upload a meal photo first.")
+    if st.button("✨ Analyze Plate with Gemini Vision"):
+        if not uploaded_file:
+            st.warning("Please upload a photo first.")
         else:
-            with st.spinner("Gemini Vision is estimating portion weights and macros..."):
-                client = genai.Client(api_key=api_key)
-                analysis = analyze_meal_photo(client, model_name, img, user_notes, meal_type)
-                save_meal(selected_date, meal_type, analysis)
+            with st.spinner("Gemini is breaking down your ingredients and macros..."):
+                img = Image.open(uploaded_file)
+                prompt = f"""
+                You are an expert clinical nutritionist. Analyze this photo of a {meal_type} meal.
+                User notes: "{user_notes if user_notes else 'None'}"
+                1. Identify every visible item and portion size in grams.
+                2. Calculate calories, protein, carbs, fat, and fiber.
+                3. Provide 1-2 sentences of actionable coaching feedback.
+                """
+                response = client.models.generate_content(
+                    model=MODEL_NAME,
+                    contents=[img, prompt],
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=MealAnalysis,
+                        temperature=0.2,
+                    ),
+                )
+                analysis = MealAnalysis.model_validate_json(response.text)
+                save_meal(selected_date.isoformat(), meal_type, analysis)
                 st.session_state["last_analysis"] = analysis
+                st.success("Meal logged successfully!")
                 st.rerun()
 
     if "last_analysis" in st.session_state:
         res: MealAnalysis = st.session_state["last_analysis"]
-        st.success(f"Logged: **{res.meal_summary}** ({res.total_calories} kcal)")
-        st.info(f"💡 **Nutritionist Note:** {res.nutritional_feedback}")
-        st.dataframe(
-            [item.model_dump() for item in res.items],
-            use_container_width=True,
-            hide_index=True
-        )
+        st.markdown(f"""
+        <div class="glass-card">
+            <h4>🎯 {res.meal_summary} ({res.total_calories} kcal)</h4>
+            <p style="color: #38bdf8; font-size: 0.9rem;">💡 {res.nutritional_feedback}</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-# TAB 2: DYNAMIC DIET PLANNER
+# --- TAB 2: ADAPTIVE DIET PLAN ---
 with tab_plan:
-    st.markdown(
-        "Generate your full day's diet or **re-calculate your remaining meals** based on the photos you've already logged today."
-    )
-    if st.button("⚡ Generate / Re-Balance Diet Plan for Today", type="primary"):
-        if not api_key:
-            st.error("Please enter your Gemini API Key in the sidebar.")
-        else:
-            with st.spinner("Re-optimizing your remaining meals to hit your macro targets..."):
-                client = genai.Client(api_key=api_key)
-                targets_dict = {
-                    "calories": target_cal,
-                    "protein_g": target_pro,
-                    "carbs_g": target_carb,
-                    "fat_g": target_fat,
-                }
-                prefs_dict = {
-                    "diet_type": diet_type,
-                    "cuisine": cuisine_pref,
-                    "schedule": schedule_pref,
-                }
-                plan = generate_adaptive_plan(
-                    client, model_name, targets_dict, consumed, logged_meals, prefs_dict
-                )
-                st.session_state["current_plan"] = plan
+    st.markdown("### AI Adaptive Meal Rebalancer")
+    st.markdown("Generates your remaining meals for today based on what you've already eaten.")
+    
+    if st.button("⚡ Re-Optimize Remaining Day"):
+        with st.spinner("Re-calculating macros and crafting your menu..."):
+            remaining = {
+                "calories": max(0, target_cal - consumed["calories"]),
+                "protein": max(0.0, target_pro - consumed["protein_g"]),
+                "carbs": max(0.0, target_carb - consumed["carbs_g"]),
+                "fat": max(0.0, target_fat - consumed["fat_g"]),
+            }
+            eaten_summary = [f"{m['meal_type']}: {m['meal_summary']} ({m['calories']} kcal)" for m in logged_meals]
+            
+            prompt = f"""
+            Build a realistic meal plan for the REMAINING meals today.
+            Diet Style: {diet_type} | Staples: {cuisine_pref}
+            Remaining Macro Budget: {remaining['calories']} kcal, {remaining['protein']}g protein, {remaining['carbs']}g carbs, {remaining['fat']}g fat.
+            Already eaten: {json.dumps(eaten_summary)}
+            """
+            response = client.models.generate_content(
+                model=MODEL_NAME,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=AdaptiveDietPlan,
+                    temperature=0.4,
+                ),
+            )
+            plan = AdaptiveDietPlan.model_validate_json(response.text)
+            st.session_state["current_plan"] = plan
 
     if "current_plan" in st.session_state:
         plan: AdaptiveDietPlan = st.session_state["current_plan"]
-        st.info(f"🧭 **Adjustment Strategy:** {plan.strategy_note}")
+        st.info(f"🧭 {plan.strategy_note}")
         for m in plan.recommended_meals:
-            with st.container(border=True):
-                c1, c2 = st.columns([3, 1])
-                c1.markdown(f"#### {m.meal_slot}: {m.dish_suggestion}")
-                c1.caption(f"*{m.why_this_works}*")
-                c2.markdown(
-                    f"**{m.calories} kcal**  \n"
-                    f"P: `{m.protein_g}g` | C: `{m.carbs_g}g` | F: `{m.fat_g}g`"
-                )
+            st.markdown(f"""
+            <div class="glass-card">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <b style="color: #38bdf8; font-size: 1.1rem;">{m.meal_slot}: {m.dish_suggestion}</b>
+                    <span style="background: #1e293b; padding: 4px 10px; border-radius: 8px; font-size: 0.85rem;">{m.calories} kcal</span>
+                </div>
+                <p style="color: #94a3b8; font-size: 0.85rem; margin-top: 8px; margin-bottom: 4px;">P: {m.protein_g}g | C: {m.carbs_g}g | F: {m.fat_g}g</p>
+                <p style="font-size: 0.9rem; font-style: italic; color: #cbd5e1;">{m.why_this_works}</p>
+            </div>
+            """, unsafe_allow_html=True)
 
-# TAB 3: LOGGED MEALS LEDGER
+# --- TAB 3: MEAL HISTORY ---
 with tab_history:
+    st.markdown("### Today's Logged Meals")
     if not logged_meals:
-        st.write("No meals logged for this date yet.")
+        st.info("No meals logged yet today. Snap your first plate in the first tab!")
     else:
         for m in logged_meals:
-            with st.container(border=True):
-                c1, c2, c3 = st.columns([3, 2, 1])
-                c1.markdown(f"**{m['meal_type']}** — {m['meal_summary']}")
-                c2.markdown(
-                    f"`{m['calories']} kcal` | P: `{m['protein_g']}g` | "
-                    f"C: `{m['carbs_g']}g` | F: `{m['fat_g']}g` | Fiber: `{m['fiber_g']}g`"
-                )
-                if c3.button("🗑️ Delete", key=f"del_{m['id']}"):
-                    delete_meal(m["id"])
-                    st.rerun()
+            st.markdown(f"""
+            <div class="glass-card" style="padding: 16px; margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between;">
+                    <b>{m['meal_type']}: {m['meal_summary']}</b>
+                    <span style="color: #38bdf8;">{m['calories']} kcal</span>
+                </div>
+                <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 4px;">
+                    Protein: {m['protein_g']}g | Carbs: {m['carbs_g']}g | Fat: {m['fat_g']}g
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("🗑️ Delete entry", key=f"del_{m['id']}"):
+                delete_meal(m["id"])
+                st.rerun()
